@@ -384,7 +384,7 @@ class Part(pydantic.BaseModel):
 
 class Content(pydantic.BaseModel):
     parts: List[Part]
-    role: Literal["user", "model", "system", "function"] | None = None
+    role: Literal["user", "model", "system", "function"] = "user"
 
 
 # Request/Response classes
