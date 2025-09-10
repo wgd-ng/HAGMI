@@ -1,0 +1,14 @@
+services:
+  hagmi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - BROWSER_WORKER_COUNT=1
+    volumes:
+      - ./states:/app/states
+      - ./gemini_logs:/app/gemini_logs
+      - ./config.yaml:/app/config.yaml
+    ports:
+      - 8000:8000

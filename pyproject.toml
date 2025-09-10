@@ -1,0 +1,22 @@
+[project]
+name = "HAGMI"
+version = "0.1.0"
+description = "HAGMI is a AI-Studio to Gemini Mimicking Interface"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.12.12",
+    "camoufox[geoip]>=0.4.11",
+    "fastapi>=0.115.12",
+    "playwright>=1.52.0",
+    "pydantic>=2.11.5",
+    "pyyaml>=6.0.2",
+    "uvicorn>=0.34.3",
+]
+
+[dependency-groups]
+dev = [
+    "google-genai>=1.34.0",
+]
+

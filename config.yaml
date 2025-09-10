@@ -1,0 +1,15 @@
+Debug: false
+LogDir: './gemini_logs'
+StatesDir: './states'
+AIStudioAPIUrl: 'https://alkalimakersuite-pa.clients6.google.com/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/GenerateContent'
+AIStudioUrl: 'https://aistudio.google.com'
+AIStudioChatUrl: 'https://aistudio.google.com/prompts/new_chat'
+AIStudioProxy: null
+AiohttpTimeout: 500
+UvicornHost: '0.0.0.0'
+UvicornPort: 8000
+AuthKey: 'YOUR_API_KEY'
+Headless: 'virtual'
+Credentials:
+- email: 'user@sample.com'
+  password: 'password'
