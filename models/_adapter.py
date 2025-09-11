@@ -240,11 +240,11 @@ def GenAIRequestToAiStudioPromptHistory(model: str, request: GenerateContentRequ
                     GenAIFunctionDeclarationToAiStudio(func)
                     for func in tool.functionDeclarations
                 ])
-            if tool.codeExecution:
+            if tool.codeExecution is not None:
                 generation_config.codeExecution = 1
-            if tool.googleSearch:
+            if tool.googleSearch is not None:
                 generation_config.googleSearch = 1
-            if tool.urlContext:
+            if tool.urlContext is not None:
                 generation_config.urlContext = 1
 
     # Creating dummy user info as it's required but not available in the request
@@ -307,10 +307,39 @@ def AiStudioStreamEventToGenAIResponse(events: StreamEvent | List[StreamEvent]) 
                             parts.append(genai.Part(
                                 functionCall=AIStudioFunctionCallToGenAI(part.functionCall)
                             ))
+                        if part.executable_code:
+                            language_map = {
+                                aistudio.Language.Python: genai.Language.PYTHON
+                            }
+                            parts.append(genai.Part(
+                                executableCode=genai.ExecutableCode(
+                                    code=part.executable_code.code,
+                                    language=(
+                                        language_map[part.executable_code.language]
+                                        if part.executable_code.language and part.executable_code.language in language_map
+                                        else genai.Language.LANGUAGE_UNSPECIFIED
+                                    ),
+                                )
+                            ))
+                        if part.code_execution_result:
+                            outcome_map = {
+                                aistudio.Outcome.OK: genai.Outcome.OUTCOME_OK,
+                                aistudio.Outcome.FAILED: genai.Outcome.OUTCOME_FAILED,
+                                aistudio.Outcome.DEADLINE_EXCEEDED: genai.Outcome.OUTCOME_DEADLINE_EXCEEDED,
+                            }
+                            parts.append(genai.Part(
+                                codeExecutionResult=genai.CodeExecutionResult(
+                                    outcome=(
+                                        outcome_map[part.code_execution_result.outcome]
+                                        if part.code_execution_result.outcome and part.code_execution_result.outcome in outcome_map
+                                        else genai.Outcome.OUTCOME_UNSPECIFIED
+                                    ),
+                                    output=part.code_execution_result.output,
+                                )
+                            ))
                         # TODO: Structed output
                         # TODO: Grounding
                         # TODO: URL Context
-                        # TODO: Code Execution
                 candidates.append(genai.Candidate(
                     content=genai.Content(
                         parts=parts,

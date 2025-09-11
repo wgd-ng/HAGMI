@@ -235,6 +235,28 @@ class GenerateUsage():
     reasoningTokens: int | None = 0
 
 
+class Language(enum.IntEnum):
+    Python = 1
+
+
+class Outcome(enum.IntEnum):
+    OK = 1
+    FAILED = 2
+    DEADLINE_EXCEEDED = 3
+
+
+@dataclasses.dataclass(kw_only=True)
+class ExecutableCode():
+    language: Language | None
+    code: str
+
+
+@dataclasses.dataclass(kw_only=True)
+class CodeExecutionResult():
+    outcome: Outcome | None = None
+    output: str
+
+
 @dataclasses.dataclass(kw_only=True)
 class GeneratePart():
     unknow0: None = None
@@ -244,8 +266,8 @@ class GeneratePart():
     unknow4: None = None
     unknow5: None = None
     unknow6: None = None
-    unknow7: None = None
-    unknow8: None = None
+    executable_code: ExecutableCode | None = None
+    code_execution_result: CodeExecutionResult | None = None
     unknow9: None = None
     functionCall: FunctionCall | None = None
     unknow11: None = None
