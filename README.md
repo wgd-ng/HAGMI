@@ -132,10 +132,10 @@ sequenceDiagram
 - [x] 多模态输入输出
 - [x] 生成参数配置
 - [x] Function Calling
-- [ ] Structured Output
-- [ ] Gounding
-- [ ] Url Context
-- [ ] Code Execution
+- [x] Structured Output
+- [x] Gounding
+- [x] Url Context
+- [x] Code Execution
 
 #### 后续改进
 
@@ -144,7 +144,7 @@ sequenceDiagram
 - [ ] 详细配置文档
 - [ ] 注入隐藏模型
 - [ ] 添加OpenAI API支持
-- [ ] 将 context <250k 的请求 offload 到 GenAI API
+- [ ] 将 context <200k 的请求 offload 到 GenAI API
 
 
 ### Disclaimer

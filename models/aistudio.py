@@ -97,6 +97,7 @@ class GenerateContentConfig():
     unknow22: int | None = None
     unknow23: int | None = None
     thinkingBudget: int | None = None
+    googleSearchRetrieval: list[int] | None = None
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -281,10 +282,51 @@ class GenerateContent():
 
 
 @dataclasses.dataclass(kw_only=True)
+class Segment():
+    partIndex: int | None = None
+    startIndex: int | None = None
+    endIndex: int | None = None
+    text: str | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class GroundingSupport():
+    segment: Segment | None = None
+    groundingChunkIndices: list[int] | None = None
+    confidenceScores: list[float] | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class GroundingChunkWeb():
+    url: str | None = None
+    title: str | None = None
+    domain: str | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class GroundingChunk():
+    web: GroundingChunkWeb | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class GroundingMetadata():
+    searchEntryPoint: tuple[str] | None = None
+    groundingChunks: list[GroundingChunk] | None = None
+    groundingSupports: list[GroundingSupport] | None = None
+    unknow3: int | None = None
+    webSearchQueries: list[str] | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
 class Candidate():
     contents: GenerateContent | None
     isOutput: int | None = None # 1 response 2 thinking
     finishReason: str | None = None
+    unknow3: None = None
+    unknow4: None = None
+    unknow5: None = None
+    unknow6: None = None
+    groundingMetadata: GroundingMetadata | None = None
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -293,6 +335,9 @@ class StreamEvent():
     unknow1: None = None
     usage: GenerateUsage | None = None
     unknow4: tuple[str, int, int] | None = None
+    unknow5: None = None
+    unknow6: None = None
+    unknow7: None = None
 
 
 @dataclasses.dataclass(kw_only=True)

@@ -99,6 +99,53 @@ def AIStudioFunctionCallToGenAI(call: aistudio.FunctionCall) -> genai.FunctionCa
     )
 
 
+def AIStudioGroundingMetadataToGenAI(metadata: aistudio.GroundingMetadata) -> genai.GroundingMetadata:
+    if not metadata:
+        return None
+
+    grounding_chunks = None
+    if metadata.groundingChunks:
+        grounding_chunks = [
+            genai.GroundingChunk(
+                web=genai.GroundingChunkWeb(
+                    uri=chunk.web.url,
+                    title=chunk.web.title,
+                    domain=chunk.web.domain,
+                )
+            )
+            for chunk in metadata.groundingChunks
+            if chunk.web
+        ]
+
+    grounding_supports = None
+    if metadata.groundingSupports:
+        grounding_supports = [
+            genai.GroundingSupport(
+                segment=genai.Segment(
+                    partIndex=support.segment.partIndex,
+                    startIndex=support.segment.startIndex,
+                    endIndex=support.segment.endIndex,
+                    text=support.segment.text,
+                ) if support.segment else None,
+                groundingChunkIndices=support.groundingChunkIndices,
+                confidenceScores=support.confidenceScores,
+            )
+            for support in metadata.groundingSupports
+        ]
+    
+    search_entry_point = None
+    if metadata.searchEntryPoint:
+        search_entry_point = genai.SearchEntryPoint(
+            renderedContent=metadata.searchEntryPoint[0]
+        )
+
+    return genai.GroundingMetadata(
+        webSearchQueries=metadata.webSearchQueries,
+        groundingChunks=grounding_chunks,
+        groundingSupports=grounding_supports,
+        searchEntryPoint=search_entry_point,
+    )
+
 def _GenAIAnyToAIStudioFunctionCallParameter(value: Any) -> aistudio.FunctionCallParameter:
     if isinstance(value, str):
         return aistudio.FunctionCallParameter(string=value)
@@ -244,6 +291,7 @@ def GenAIRequestToAiStudioPromptHistory(model: str, request: GenerateContentRequ
                 generation_config.codeExecution = 1
             if tool.googleSearch is not None:
                 generation_config.googleSearch = 1
+                generation_config.googleSearchRetrieval = []
             if tool.urlContext is not None:
                 generation_config.urlContext = 1
 
@@ -273,23 +321,19 @@ def AiStudioStreamEventToGenAIResponse(events: StreamEvent | List[StreamEvent]) 
     if not isinstance(events, list):
         events = [events]
 
-    candidates = []
+    parts = []
     usage = None
+    finish_reason = None
+    role = 'model'
+    grounding = None
     for event in events:
         if event.usage:
             usage = event.usage
 
         if event.candidates:
             for candidate in event.candidates:
-                finish_reason = None
-                parts = []
-                role = 'model'
-                # if not candidate.contents.parts:
-                #     finish_reason = genai.FinishReason.STOP
-                # else:
                 if candidate.contents and candidate.contents.parts:
                     for part in candidate.contents.parts:
-                        # TODO: 添加其他返回类型支持
                         if part.text:
                             parts.append(genai.Part(
                                 text=part.text,
@@ -337,21 +381,25 @@ def AiStudioStreamEventToGenAIResponse(events: StreamEvent | List[StreamEvent]) 
                                     output=part.code_execution_result.output,
                                 )
                             ))
-                        # TODO: Structed output
-                        # TODO: Grounding
-                        # TODO: URL Context
-                candidates.append(genai.Candidate(
-                    content=genai.Content(
-                        parts=parts,
-                        role=role,
-                    ),
-                    finishReason=finish_reason,
-                    index=0,
-                    tokenCount=0,
-                ))
+                # TODO: URL Context
+                # AI Studio 只返回 groundingMetadata，不返回 urlContextMetadata 或许以后可以从groundingMetadata重建。
+                if candidate.groundingMetadata:
+                    grounding = AIStudioGroundingMetadataToGenAI(candidate.groundingMetadata)
+                break  # AI Studio 只有一个候选
+
+    final_candidate = genai.Candidate(
+        content=genai.Content(
+            parts=parts,
+            role=role,
+        ),
+        finishReason=finish_reason,
+        index=0,
+        tokenCount=0,
+        groundingMetadata=grounding,
+    )
 
     return genai.GenerateContentResponse(
-        candidates=candidates,
+        candidates=[final_candidate],
         usageMetadata=genai.UsageMetadata(
             promptTokenCount=usage.inputToken or 0,
             candidatesTokenCount=usage.outputTokens or 0,

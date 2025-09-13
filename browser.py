@@ -174,13 +174,14 @@ class BrowserWorker:
             # 没登录
             if not self._credential.email or not self._credential.password:
                 return False
+
             logger.info('login using credential %s', self._credential.email)
             await page.locator('input#identifierId').type(self._credential.email)
             await expect(page.locator('#identifierNext button')).to_be_enabled()
             await page.locator('#identifierNext button').click()
-            logger.info('login using credential %s type in password', self._credential.email)
-            await expect(page.locator('input[name="Passwd"]')).to_be_visible()
+            await asyncio.sleep(3)
             await expect(page.locator('input[name="Passwd"]')).to_be_editable()
+            logger.info('login using credential %s type in password', self._credential.email)
             await page.locator('input[name="Passwd"]').type(self._credential.password)
             await expect(page.locator('#passwordNext button')).to_be_enabled()
             await page.locator('#passwordNext button').click()
