@@ -1,8 +1,9 @@
 services:
   hagmi:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    image: ghcr.io/wgd-ng/hagmi
     restart: unless-stopped
     environment:
       - BROWSER_WORKER_COUNT=1
