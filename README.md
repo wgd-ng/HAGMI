@@ -5,10 +5,6 @@ HAGMI is a AI-Studio to Gemini Mimicking Interface
 这是一个将AI Studio转换为Gemini API的项目
 
 
-### Warning
-
-项目目前处于概念验证阶段，缺乏详细文档，请勿就使用方法提交issue。
-
 ### 使用方法
 
 #### 1. 设置配置文件
