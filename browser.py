@@ -119,12 +119,21 @@ class BrowserWorker:
 
     async def browser(self) -> BrowserContext:
         if not self._browser:
+            proxy = None
+            if config.Proxy:
+                proxy = {
+                    "server": config.Proxy.server,
+                    "username": config.Proxy.username,
+                    "password": config.Proxy.password,
+                }
             if not self._endpoint:
                 _browser = typing.cast(Browser, await AsyncCamoufox(
                     headless=config.Headless,
                     main_world_eval=True,
                     enable_cache=True,
                     locale="US",
+                    # proxy=proxy,
+                    geoip=True if proxy else False,
                 ).__aenter__())
             else:
                 _browser = await (await async_playwright().__aenter__()).firefox.connect(self._endpoint)

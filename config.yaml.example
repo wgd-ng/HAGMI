@@ -1,15 +1,38 @@
+# 调试开关，开启会改变部分行为，不推荐在部署时开启
 Debug: false
+
+# 日志目录，开启调试是将保存错误的请求详细记录至此目录，在生产中有泄漏对话的风险
 LogDir: './gemini_logs'
+# 保存登录状态文件的目录
 StatesDir: './states'
+# AI Studio 的地址配置，不推荐更改
 AIStudioAPIUrl: 'https://alkalimakersuite-pa.clients6.google.com/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/GenerateContent'
 AIStudioUrl: 'https://aistudio.google.com'
 AIStudioChatUrl: 'https://aistudio.google.com/prompts/new_chat'
-AIStudioProxy: null
 AiohttpTimeout: 500
+
+# uvicorn 的监听地址和目录，仅在通过app.py运行时生效，通过uvicorn启动时不生效
 UvicornHost: '0.0.0.0'
 UvicornPort: 8000
+
+# ！！！用于鉴权的API Key 一定要更改！！！
 AuthKey: 'YOUR_API_KEY'
+
+# 无头浏览器配置, 可选 true, false 或者 虚拟显示器 virtual
 Headless: 'virtual'
-Credentials:
-- email: 'user@sample.com'
-  password: 'password'
+
+# 代理配置, 可选socks5或http代理，使用socks5代理是不支持用户名密码鉴权
+# proxy:
+#   server: 'socks5://127.0.0.1:7070'
+# proxy:
+#   server: 'http://127.0.0.1:7071'
+#   username: 'username'
+#   password: 'password'
+
+# 账号配置，可配置多个用户，启动浏览器时会尝试自动登录，但不支持ReCaptcha或2FA。
+# 可以不配置账户，仅通过上传登录状态使用
+# Credentials:
+# - email: 'user1@sample.com'
+#   password: 'password'
+# - email: 'user2@sample.com'
+#   password: 'password'

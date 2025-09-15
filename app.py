@@ -1,8 +1,10 @@
 from typing import AsyncGenerator
 import logging
-from fastapi import Depends, FastAPI, HTTPException, Query, Header, Response, Request, status
+import re
+from fastapi import Depends, FastAPI, HTTPException, Query, Header, Response, Request, status, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import urllib.parse
 from models import genai
 from models.genai import (
     Content,
@@ -69,10 +71,16 @@ async def StreamGenerator(model_name: str, headers: dict[str, str], body: str, p
     async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
 
         profiler.span('aiohtpp: send request to aistudio', body)
-        print(url)
+        proxy_auth, proxy = None, None
+        if config.Proxy:
+            proxy = config.Proxy.server
+            if config.Proxy.username is not None:
+                proxy_password = config.Proxy.password or ''
+                proxy_auth = aiohttp.BasicAuth(config.Proxy.username, proxy_password)
+
         resp = await session.post(
             url, headers=headers, data=body,
-            proxy=config.AIStudioProxy,
+            proxy=proxy, proxy_auth=proxy_auth,
         )
 
         chunks: list[bytes] = []
@@ -218,6 +226,9 @@ async def ListModel() -> genai.ListModelsResponse:
     return adapter.AIStudioListModelToGenAIListModel(aistudio_response)
 
 
+# TODO: 支持 Gemini API 文件上传接口
+
+
 @app.post("/upload/v1beta/files", response_model=genai.FileResponse, dependencies=[Depends(api_key_auth)])
 async def upload_file(request: genai.UploadFileRequest):
     """
@@ -265,6 +276,25 @@ async def upload_file_chunk(upload_id: str, request: Request):
         FILES[file_name].state = "ACTIVE"
         return genai.FileResponse(file=FILES[file_name])
     return Response(status_code=404)
+
+
+# 管理接口
+
+regex = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\.json$')
+
+@app.post("/admin/upload_state", dependencies=[Depends(api_key_auth)])
+async def upload_state(state: UploadFile,  request: Request):
+    filename = urllib.parse.unquote(state.filename)
+    assert filename is not None
+    print(filename)
+    if not regex.match(filename):
+        return Response(status_code=400)
+    content = await state.read()
+    # TODO: validate state
+    logging.info('save state %s', filename)
+    with open(f'{config.StatesDir}/{filename}', 'wb') as f:
+        f.write(content)
+    return Response(status_code=200)
 
 
 if __name__ == "__main__":
