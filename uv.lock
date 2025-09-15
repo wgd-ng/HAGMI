@@ -380,7 +380,7 @@ wheels = [
 
 [[package]]
 name = "hagmi"
-version = "1.0.0"
+version = "1.0.2"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
