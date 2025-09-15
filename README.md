@@ -13,12 +13,39 @@ HAGMI is a AI-Studio to Gemini Mimicking Interface
 cp config.yaml.example config.yaml
 ```
 
-根据需求修改配置文件
+配置文件中已包含各配置项说明。
 
 #### 2. 配置有效登录状态
 
-* 在config.yaml中配置有效的登录凭证，将自动使用登录凭证进行登录。（不支持2FA）
-* 也可以在states文件夹中存放 playwright 的 Storage State 文件。
+##### 方法1: 在config.yaml中配置有效的登录凭证
+
+在服务启动时将尝试使用 `config.yaml` 中配置的登录凭证恢复登录状态，若未登录或登录状态已过期，将尝试使用帐号密码进行登录。
+注：目前无法处理ReCaptcha或者2FA，如果无法使用自动登录，请选择方法2。
+
+##### 方法2: 保存登录状态文件
+
+可以使用 `scripts/create_state.py` 脚本进行登录保存登录状态文件。脚本接受的参数如下
+```
+usage: create_state.py [-h] [--email user@example.com] [--password PASSWORD] [--remote http://127.0.0.1:8000]
+
+登录AI Studio 并保存登录状态
+
+options:
+  -h, --help            show this help message and exit
+  --email user@example.com
+                        Google 帐号自动填充 (default: None)
+  --password PASSWORD   Google 帐号密码自动填充(可选) (default: None)
+  --remote http://127.0.0.1:8000
+                        推送到远程HAGMI实例 (default: None)
+```
+
+若脚本提供了 `email` 与/或 `password`参数，脚本将尝试自动填充帐号密码进行登录，并由用户处理可能的额外验证(ReCaptcha或者2FA)。
+如果 `email` 和 `password`参数未提供，则由用户完成整个登录流程。
+在登录完成后，脚本将尝试从 AI Studio 获取帐号信息，若脚本未能获取帐号信息，将提示用户输入帐号名称，最后把保存登录状态至`states/{email}.json`。
+
+
+如果提供了 `remote` 参数，脚本将尝试推送登录状态文件到远程 HAGMI 实例。
+
 
 #### 3a. 直接启动项目（调试）
 
@@ -32,7 +59,7 @@ docker-compose build
 docker-compose up -d
 ```
 
-#### 使用GenAI API格式访问服务
+#### 4. 使用GenAI API格式访问服务
 
 ```shell
 curl "http://localhost:8000/v1beta/models/gemini-2.5-pro:streamGenerateContent" \
@@ -135,9 +162,9 @@ sequenceDiagram
 
 #### 后续改进
 
-- [ ] AI Studio代理配置
-- [ ] 预构建Docker镜像
-- [ ] 详细配置文档
+- [x] AI Studio代理配置
+- [x] 预构建Docker镜像
+- [x] 详细配置文档
 - [ ] 注入隐藏模型
 - [ ] 添加OpenAI API支持
 - [ ] 将 context <200k 的请求 offload 到 GenAI API
