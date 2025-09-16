@@ -67,10 +67,16 @@ async def login():
                     await page.locator('#passwordNext button').click()
 
         # 等待登录成功跳转到AI Studio
-        await page.wait_for_url(f'{config.AIStudioUrl}/prompts/new_chat')
+        await page.wait_for_url(f'{config.AIStudioUrl}/prompts/new_chat', timeout=0)
         # 尝试从页面数据中获取帐号
         regex = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-        emails = [v for v in (await page.evaluate('mw:window.WIZ_global_data')).values() if isinstance(v, str) and regex.match(v)]
+        emails = []
+        for _ in range(15):
+            global_data = await page.evaluate('mw:window.WIZ_global_data')
+            if not global_data:
+                await asyncio.sleep(1)
+                continue
+            emails = [v for v in (global_data).values() if isinstance(v, str) and regex.match(v)]
         auto_email = emails[0] if len(emails) == 1 else None
         email = args.email
         if not email and auto_email:

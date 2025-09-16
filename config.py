@@ -1,5 +1,7 @@
 import os
 import logging
+from typing import Literal
+import aiohttp
 from pydantic import BaseModel, config, Field
 import yaml
 
@@ -32,7 +34,7 @@ class Config(BaseModel):
     AuthKey: str
     Proxy: ProxyConfig | None = None
 
-    Headless: bool | str = 'virtual'
+    Headless: bool | Literal['virtual'] = 'virtual'
     Credentials: list[Credential] = Field(default_factory=list)
 
 
@@ -68,3 +70,17 @@ if config.Proxy:
         pass
     else:
         raise ValueError('不支持的代理配置')
+
+AIOHTTP_PROXY = None
+AIOHTTP_PROXY_AUTH = None
+CAMOUFOX_PROXY = None
+
+if config.Proxy:
+    AIOHTTP_PROXY = config.Proxy.server
+    CAMOUFOX_PROXY = {'server': config.Proxy.server}
+
+    if config.Proxy.username is not None:
+        AIOHTTP_PROXY_AUTH = aiohttp.BasicAuth(config.Proxy.username, config.Proxy.password or '')
+        CAMOUFOX_PROXY['username'] = config.Proxy.username
+        if config.Proxy.password is not None:
+            CAMOUFOX_PROXY['password'] = config.Proxy.password

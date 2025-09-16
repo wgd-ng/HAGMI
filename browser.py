@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from camoufox.async_api import AsyncCamoufox, AsyncNewBrowser
 from playwright.async_api import Route, expect, async_playwright, BrowserContext, Browser, Page
 import dataclasses
-from config import config
+from config import config, AIOHTTP_PROXY, AIOHTTP_PROXY_AUTH, CAMOUFOX_PROXY
 from utils import Profiler, CredentialManager, Credential
 
 
@@ -44,7 +44,7 @@ fixed_responsed = [
             [[[[[None,"**Thinking**\n\n不，你不想。\n\n\n",None,None,None,None,None,None,None,None,None,None,1]],"model"]]],
             None,[6,None,74,None,[[1,6]],None,None,None,None,68]],
         [
-            [[[[[None,"摆。"]],"model"],1]],
+            [[[[[None,"请求已转移到Python中。"]],"model"],1]],
             None,[6,9,215,None,[[1,6]],None,None,None,None,200]],
         [
             None,None,None,["1749019849541811",109021497,4162363067]]
@@ -61,6 +61,7 @@ class InterceptTask:
 
 class BrowserPool:
     queue: asyncio.Queue[InterceptTask]
+    _workers: dict[asyncio.Task, 'BrowserWorker']
 
     def __init__(self, credentialManager: CredentialManager, worker_count: int = config.WorkerCount, *, endpoint: str | None = None, loop=None):
         self._loop = loop
@@ -68,7 +69,7 @@ class BrowserPool:
         self.queue = asyncio.Queue()
         self._credMgr = credentialManager
         self._worker_count = min(worker_count, len(self._credMgr.credentials))
-        self._workers: list[asyncio.Task] = []
+        self._workers = {}
         self._models: list[Model] = []
 
     def set_Models(self, models: list[Model]):
@@ -77,6 +78,15 @@ class BrowserPool:
     def get_Models(self) -> list[Model]:
         #TODO: model list override
         return self._models
+
+    def worker_done_callback(self, task: asyncio.Task) -> None:
+        if exc := task.exception():
+            logger.error('worker %s failed with exception', task.get_name(), exc_info=exc)
+        else:
+            logger.info('worker %s exit normally', task.get_name())
+        if worker := self._workers.pop(task, None):
+            asyncio.create_task(worker.stop())
+            worker.ready.set()
 
     async def start(self):
 
@@ -90,13 +100,26 @@ class BrowserPool:
             )
             logger.info('spawn worker with %s', cred.email)
             task = asyncio.create_task(worker.run(), name=f"BrowserWorker-{cred.email}")
-            self._workers.append(task)
+            task.add_done_callback(self.worker_done_callback)
+            self._workers[task] = worker
+
+            # sleep 10s。防止一次启动太多浏览器
+            await asyncio.sleep(10)
+
+        logger.info('waiting for workers to be ready')
+        await asyncio.gather(*[
+            worker.ready.wait()
+            for task, worker in self._workers.items() if not task.done()
+        ], return_exceptions=True)
+
+        if len(self._workers) <= 0:
+            raise BaseException('No Worker Available')
+        logger.info('%d Workers Up and Running', len(self._workers))
         return self
 
     async def stop(self):
-        for worker in self._workers:
-            worker.cancel()
-        await asyncio.gather(*self._workers, return_exceptions=True)
+        await asyncio.gather(*[
+            worker.stop() for worker in self._workers.values()], return_exceptions=True)
 
     async def put_task(self, task: InterceptTask):
         await self.queue.put(task)
@@ -108,6 +131,7 @@ class BrowserWorker:
     _endpoint: str | None
     _pool: BrowserPool
     status: str
+    ready: asyncio.Event
 
     def __init__(self, credential: Credential, pool: BrowserPool, *, endpoint: str|None = None, loop=None):
         self._loop = loop
@@ -116,24 +140,18 @@ class BrowserWorker:
         self._endpoint = endpoint
         self._pages = []
         self._pool = pool
+        self.ready = asyncio.Event()
 
     async def browser(self) -> BrowserContext:
         if not self._browser:
-            proxy = None
-            if config.Proxy:
-                proxy = {
-                    "server": config.Proxy.server,
-                    "username": config.Proxy.username,
-                    "password": config.Proxy.password,
-                }
             if not self._endpoint:
                 _browser = typing.cast(Browser, await AsyncCamoufox(
                     headless=config.Headless,
                     main_world_eval=True,
                     enable_cache=True,
                     locale="US",
-                    # proxy=proxy,
-                    geoip=True if proxy else False,
+                    proxy=CAMOUFOX_PROXY,
+                    geoip=True if CAMOUFOX_PROXY else False,
                 ).__aenter__())
             else:
                 _browser = await (await async_playwright().__aenter__()).firefox.connect(self._endpoint)
@@ -155,10 +173,19 @@ class BrowserWorker:
 
     async def handle_ListModels(self, route: Route) -> None:
         if not self._pool.get_Models():
-            resp = await route.fetch()
-            data = inflate(await resp.json(), ListModelsResponse)
-            if data:
-                self._pool.set_Models(data.models)
+            async with aiohttp.ClientSession() as session:
+
+                resp = await session.post(
+                    route.request.url,
+                    headers=route.request.headers,
+                    data=route.request.post_data,
+                    proxy=AIOHTTP_PROXY, proxy_auth=AIOHTTP_PROXY_AUTH,
+                    ssl=False if AIOHTTP_PROXY else True
+                )
+
+                data = inflate(await resp.json(), ListModelsResponse)
+                if data:
+                    self._pool.set_Models(data.models)
         # TODO: 从缓存快速返回请求
         # TODO: 劫持并修改模型列表
         await route.fallback()
@@ -214,9 +241,18 @@ class BrowserWorker:
             self._pages.append(page)
             await page.unroute_all()
 
+    async def stop(self):
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+
     async def run(self):
-        await self.validate_state()
+        if not await self.validate_state():
+            logger.info('State is not valid for credential %s', self._credential.email)
+            await self.stop()
+            return
         logger.info('Worker %s is ready', self._credential.email)
+        self.ready.set()
         while True:
             try:
                 task = await self._pool.queue.get()
@@ -244,6 +280,13 @@ class BrowserWorker:
                     await route.fulfill(
                         content_type='application/json+protobuf; charset=UTF-8',
                         body=data,
+                    )
+                case 'GenerateAccessToken':
+                    # 阻止保存Prompt至历史
+                    await route.fulfill(
+                        content_type='application/json+protobuf; charset=UTF-8',
+                        body='[16,"Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential. Seehttps://developers.google.com/identity/sign-in/web/devconsole-project."]',
+                        status=401,
                     )
                 case 'CreatePrompt':
                     await route.abort()

@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse
 from browser import BrowserPool, InterceptTask
 from models import _adapter as adapter, aistudio, genai
-from config import config
+from config import config, AIOHTTP_PROXY, AIOHTTP_PROXY_AUTH
 from utils import TinyProfiler, Profiler, CredentialManager
 
 
@@ -68,19 +68,13 @@ async def api_key_auth(
 async def StreamGenerator(model_name: str, headers: dict[str, str], body: str, profiler: Profiler) -> AsyncGenerator[StreamEvent, None]:
     url = config.AIStudioAPIUrl
     timeout = aiohttp.ClientTimeout(total=config.AioHTTPTimeout, connect=None, sock_connect=None, sock_read=None)
-    async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
+    async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False if AIOHTTP_PROXY else True)) as session:
 
         profiler.span('aiohtpp: send request to aistudio', body)
-        proxy_auth, proxy = None, None
-        if config.Proxy:
-            proxy = config.Proxy.server
-            if config.Proxy.username is not None:
-                proxy_password = config.Proxy.password or ''
-                proxy_auth = aiohttp.BasicAuth(config.Proxy.username, proxy_password)
 
         resp = await session.post(
             url, headers=headers, data=body,
-            proxy=proxy, proxy_auth=proxy_auth,
+            proxy=AIOHTTP_PROXY, proxy_auth=AIOHTTP_PROXY_AUTH,
         )
 
         chunks: list[bytes] = []
@@ -171,7 +165,7 @@ async def forward_request(request: Request) -> Response:
 
     timeout = aiohttp.ClientTimeout(total=config.AioHTTPTimeout, connect=None, sock_connect=None, sock_read=None)
     
-    session = aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False))
+    session = aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False if AIOHTTP_PROXY else True))
 
     try:
         method = request.method
@@ -180,7 +174,7 @@ async def forward_request(request: Request) -> Response:
             target_url,
             data=body,
             headers=headers,
-            proxy=config.AIStudioProxy
+            proxy=AIOHTTP_PROXY, proxy_auth=AIOHTTP_PROXY_AUTH
         )
     except aiohttp.ClientError as e:
         await session.close()

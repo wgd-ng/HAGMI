@@ -49,6 +49,15 @@ options:
 
 #### 3a. 直接启动项目（调试）
 
+在第一次启动之前需要通过命令安装camoufox和playwright依赖
+
+```shell
+uv run playwright install firefox --with-deps
+uv run camoufox fetch
+```
+
+安装完依赖后，后续可以通过命令直接启动项目
+
 ```shell
 uv run python app.py
 ```
