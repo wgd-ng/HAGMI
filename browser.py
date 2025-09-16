@@ -186,10 +186,6 @@ class BrowserWorker:
                 data = inflate(await resp.json(), ListModelsResponse)
                 if data:
                     self._pool.set_Models(data.models)
-            resp = await route.fetch()
-            data = inflate(await resp.json(), ListModelsResponse)
-            if data:
-                self._pool.set_Models(data.models)
         # TODO: 从缓存快速返回请求
         # TODO: 劫持并修改模型列表
         await route.fallback()
@@ -290,6 +286,7 @@ class BrowserWorker:
                     await route.fulfill(
                         content_type='application/json+protobuf; charset=UTF-8',
                         body='[16,"Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential. Seehttps://developers.google.com/identity/sign-in/web/devconsole-project."]',
+                        status=401,
                     )
                 case 'CreatePrompt':
                     await route.abort()
