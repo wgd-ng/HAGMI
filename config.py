@@ -17,6 +17,12 @@ class ProxyConfig(BaseModel):
     password: str | None = None
 
 
+class ModelInjection(BaseModel):
+    model: str
+    template: str
+    override: dict[str, str | int] = Field(default_factory=dict)
+
+
 class Config(BaseModel):
     Debug: bool = False
     LogDir: str = './gemini_logs'
@@ -34,6 +40,7 @@ class Config(BaseModel):
 
     Headless: bool | str = 'virtual'
     Credentials: list[Credential] = Field(default_factory=list)
+    CustomModels: list[ModelInjection] = Field(default_factory=list)
 
 
 config = Config.model_validate(yaml.safe_load(open('config.yaml')))

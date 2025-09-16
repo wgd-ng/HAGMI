@@ -36,3 +36,9 @@ Headless: 'virtual'
 #   password: 'password'
 # - email: 'user2@sample.com'
 #   password: 'password'
+
+
+# 模型注入, 可配置多个
+# CustomModels:
+#   - model: 'gemini-2.5-flash-preview-05-20'
+#     template: 'gemini-2.5-flash'
