@@ -61,6 +61,7 @@ class InterceptTask:
 
 class BrowserPool:
     queue: asyncio.Queue[InterceptTask]
+    _workers: dict[asyncio.Task, 'BrowserWorker']
 
     def __init__(self, credentialManager: CredentialManager, worker_count: int = config.WorkerCount, *, endpoint: str | None = None, loop=None):
         self._loop = loop
@@ -68,7 +69,7 @@ class BrowserPool:
         self.queue = asyncio.Queue()
         self._credMgr = credentialManager
         self._worker_count = min(worker_count, len(self._credMgr.credentials))
-        self._workers: list[asyncio.Task] = []
+        self._workers = {}
         self._models: list[Model] = []
 
     def set_Models(self, models: list[Model]):
@@ -78,11 +79,14 @@ class BrowserPool:
         #TODO: model list override
         return self._models
 
-    def worker_done_callback(self, worker: asyncio.Task) -> None:
-        if exc := worker.exception():
-            logger.error('worker %s failed with exception', worker.get_name(), exc_info=worker.exception())
+    def worker_done_callback(self, task: asyncio.Task) -> None:
+        if exc := task.exception():
+            logger.error('worker %s failed with exception', task.get_name(), exc_info=exc)
         else:
-            logger.info('worker %s exit normally', worker.get_name())
+            logger.info('worker %s exit normally', task.get_name())
+        if worker := self._workers.pop(task, None):
+            asyncio.create_task(worker.stop())
+            worker.ready.set()
 
     async def start(self):
 
@@ -97,13 +101,25 @@ class BrowserPool:
             logger.info('spawn worker with %s', cred.email)
             task = asyncio.create_task(worker.run(), name=f"BrowserWorker-{cred.email}")
             task.add_done_callback(self.worker_done_callback)
-            self._workers.append(task)
+            self._workers[task] = worker
+
+            # sleep 10s。防止一次启动太多浏览器
+            await asyncio.sleep(10)
+
+        logger.info('waiting for workers to be ready')
+        await asyncio.gather(*[
+            worker.ready.wait()
+            for task, worker in self._workers.items() if not task.done()
+        ], return_exceptions=True)
+
+        if len(self._workers) <= 0:
+            raise BaseException('No Worker Available')
+        logger.info('%d Workers Up and Running', len(self._workers))
         return self
 
     async def stop(self):
-        for worker in self._workers:
-            worker.cancel()
-        await asyncio.gather(*self._workers, return_exceptions=True)
+        await asyncio.gather(*[
+            worker.stop() for worker in self._workers.values()], return_exceptions=True)
 
     async def put_task(self, task: InterceptTask):
         await self.queue.put(task)
@@ -115,6 +131,7 @@ class BrowserWorker:
     _endpoint: str | None
     _pool: BrowserPool
     status: str
+    ready: asyncio.Event
 
     def __init__(self, credential: Credential, pool: BrowserPool, *, endpoint: str|None = None, loop=None):
         self._loop = loop
@@ -123,6 +140,7 @@ class BrowserWorker:
         self._endpoint = endpoint
         self._pages = []
         self._pool = pool
+        self.ready = asyncio.Event()
 
     async def browser(self) -> BrowserContext:
         if not self._browser:
@@ -139,7 +157,7 @@ class BrowserWorker:
                     main_world_eval=True,
                     enable_cache=True,
                     locale="US",
-                    # proxy=proxy,
+                    proxy=proxy,
                     geoip=True if proxy else False,
                 ).__aenter__())
             else:
@@ -221,11 +239,18 @@ class BrowserWorker:
             self._pages.append(page)
             await page.unroute_all()
 
+    async def stop(self):
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+
     async def run(self):
         if not await self.validate_state():
             logger.info('State is not valid for credential %s', self._credential.email)
+            await self.stop()
             return
         logger.info('Worker %s is ready', self._credential.email)
+        self.ready.set()
         while True:
             try:
                 task = await self._pool.queue.get()
