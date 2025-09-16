@@ -179,6 +179,15 @@ sequenceDiagram
 - [ ] 将 context <200k 的请求 offload 到 GenAI API
 
 
+#### 待计划
+
+- [ ] Imagen 系列模型支持
+- [ ] TTS 系列模型支持
+- [ ] Gemini Flash Live 系列模型支持
+- [ ] Gemini Flash Native Audio 系列模型支持
+- [ ] Veo 系列模型支持
+
+
 ### Disclaimer
 
 通过本项目使用AI Studio可能违反Google的服务条款，请自行承担风险。
