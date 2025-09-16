@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from camoufox.async_api import AsyncCamoufox, AsyncNewBrowser
 from playwright.async_api import Route, expect, async_playwright, BrowserContext, Browser, Page
 import dataclasses
-from config import config
+from config import config, AIOHTTP_PROXY, AIOHTTP_PROXY_AUTH, CAMOUFOX_PROXY
 from utils import Profiler, CredentialManager, Credential
 
 
@@ -44,7 +44,7 @@ fixed_responsed = [
             [[[[[None,"**Thinking**\n\n不，你不想。\n\n\n",None,None,None,None,None,None,None,None,None,None,1]],"model"]]],
             None,[6,None,74,None,[[1,6]],None,None,None,None,68]],
         [
-            [[[[[None,"摆。"]],"model"],1]],
+            [[[[[None,"请求已转移到Python中。"]],"model"],1]],
             None,[6,9,215,None,[[1,6]],None,None,None,None,200]],
         [
             None,None,None,["1749019849541811",109021497,4162363067]]
@@ -144,21 +144,14 @@ class BrowserWorker:
 
     async def browser(self) -> BrowserContext:
         if not self._browser:
-            proxy = None
-            if config.Proxy:
-                proxy = {
-                    "server": config.Proxy.server,
-                    "username": config.Proxy.username,
-                    "password": config.Proxy.password,
-                }
             if not self._endpoint:
                 _browser = typing.cast(Browser, await AsyncCamoufox(
                     headless=config.Headless,
                     main_world_eval=True,
                     enable_cache=True,
                     locale="US",
-                    proxy=proxy,
-                    geoip=True if proxy else False,
+                    proxy=CAMOUFOX_PROXY,
+                    geoip=True if CAMOUFOX_PROXY else False,
                 ).__aenter__())
             else:
                 _browser = await (await async_playwright().__aenter__()).firefox.connect(self._endpoint)
@@ -180,6 +173,19 @@ class BrowserWorker:
 
     async def handle_ListModels(self, route: Route) -> None:
         if not self._pool.get_Models():
+            async with aiohttp.ClientSession() as session:
+
+                resp = await session.post(
+                    route.request.url,
+                    headers=route.request.headers,
+                    data=route.request.post_data,
+                    proxy=AIOHTTP_PROXY, proxy_auth=AIOHTTP_PROXY_AUTH,
+                    ssl=False if AIOHTTP_PROXY else True
+                )
+
+                data = inflate(await resp.json(), ListModelsResponse)
+                if data:
+                    self._pool.set_Models(data.models)
             resp = await route.fetch()
             data = inflate(await resp.json(), ListModelsResponse)
             if data:
@@ -278,6 +284,12 @@ class BrowserWorker:
                     await route.fulfill(
                         content_type='application/json+protobuf; charset=UTF-8',
                         body=data,
+                    )
+                case 'GenerateAccessToken':
+                    # 阻止保存Prompt至历史
+                    await route.fulfill(
+                        content_type='application/json+protobuf; charset=UTF-8',
+                        body='[16,"Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential. Seehttps://developers.google.com/identity/sign-in/web/devconsole-project."]',
                     )
                 case 'CreatePrompt':
                     await route.abort()
