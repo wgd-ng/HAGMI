@@ -78,6 +78,12 @@ class BrowserPool:
         #TODO: model list override
         return self._models
 
+    def worker_done_callback(self, worker: asyncio.Task) -> None:
+        if exc := worker.exception():
+            logger.error('worker %s failed with exception', worker.get_name(), exc_info=worker.exception())
+        else:
+            logger.info('worker %s exit normally', worker.get_name())
+
     async def start(self):
 
         for cred in self._credMgr.credentials[:self._worker_count]:
@@ -90,6 +96,7 @@ class BrowserPool:
             )
             logger.info('spawn worker with %s', cred.email)
             task = asyncio.create_task(worker.run(), name=f"BrowserWorker-{cred.email}")
+            task.add_done_callback(self.worker_done_callback)
             self._workers.append(task)
         return self
 
@@ -215,7 +222,9 @@ class BrowserWorker:
             await page.unroute_all()
 
     async def run(self):
-        await self.validate_state()
+        if not await self.validate_state():
+            logger.info('State is not valid for credential %s', self._credential.email)
+            return
         logger.info('Worker %s is ready', self._credential.email)
         while True:
             try:

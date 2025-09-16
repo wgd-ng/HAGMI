@@ -1,5 +1,6 @@
 import os
 import logging
+from typing import Literal
 from pydantic import BaseModel, config, Field
 import yaml
 
@@ -32,7 +33,7 @@ class Config(BaseModel):
     AuthKey: str
     Proxy: ProxyConfig | None = None
 
-    Headless: bool | str = 'virtual'
+    Headless: bool | Literal['virtual'] = 'virtual'
     Credentials: list[Credential] = Field(default_factory=list)
 
 
