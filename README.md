@@ -49,6 +49,8 @@ options:
 
 #### 3a. 直接启动项目（调试）
 
+项目使用 `uv` 作为包管理， 安装方法参考 [uv的安装文档](https://docs.astral.sh/uv/getting-started/installation/)
+
 在第一次启动之前需要通过命令安装camoufox和playwright依赖
 
 ```shell
