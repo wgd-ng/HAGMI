@@ -61,6 +61,8 @@ class InterceptTask:
 
 class BrowserPool:
     queue: asyncio.Queue[InterceptTask]
+    _raw_models_response: str | None
+    _models: list[Model]
 
     def __init__(self, credentialManager: CredentialManager, worker_count: int = config.WorkerCount, *, endpoint: str | None = None, loop=None):
         self._loop = loop
@@ -69,14 +71,19 @@ class BrowserPool:
         self._credMgr = credentialManager
         self._worker_count = min(worker_count, len(self._credMgr.credentials))
         self._workers: list[asyncio.Task] = []
-        self._models: list[Model] = []
+        self._models = []
+        self._raw_models_response = None
 
-    def set_Models(self, models: list[Model]):
+    def set_Models(self, models: list[Model], raw: str | None = None):
+        self._raw_models_response = raw
         self._models = models
 
     def get_Models(self) -> list[Model]:
         #TODO: model list override
         return self._models
+    
+    def get_ModelsRaw(self) -> str | None:
+        return self._raw_models_response
 
     async def start(self):
 
@@ -100,6 +107,29 @@ class BrowserPool:
 
     async def put_task(self, task: InterceptTask):
         await self.queue.put(task)
+
+
+def inject_models(raw: list[list[Any]]) -> list[list[Any]]:
+    # Model 里有太多未知的字段，目前直接对未inflate的数据进行inplace处理
+    # TODO: Model 字段完成后重写
+    models = {
+        model[0].replace('models/', ''): model
+        for model in raw[0]
+    }
+    for inject in config.CustomModels:
+        if inject.template not in models:
+            logger.warning('template %s not found in models', inject.template)
+            continue
+        template = models[inject.template]
+        model = template.copy()
+        model[0] = f'models/{inject.model}'
+        model[2] = inject.name
+        for k, v in inject.override.items():
+            model[k] = v
+        raw[0].insert(raw[0].index(template), model)
+        logger.info('injected model %s', inject.model)
+
+    return raw
 
 
 class BrowserWorker:
@@ -154,14 +184,19 @@ class BrowserWorker:
         return self._browser
 
     async def handle_ListModels(self, route: Route) -> None:
-        if not self._pool.get_Models():
+        if not self._pool.get_Models() or not self._pool.get_ModelsRaw():
             resp = await route.fetch()
-            data = inflate(await resp.json(), ListModelsResponse)
+            raw = inject_models(await resp.json())
+            data = inflate(raw, ListModelsResponse)
             if data:
-                self._pool.set_Models(data.models)
-        # TODO: 从缓存快速返回请求
-        # TODO: 劫持并修改模型列表
-        await route.fallback()
+                self._pool.set_Models(data.models, json.dumps(raw, separators=(',', ':')))
+        if raw_resp := self._pool.get_ModelsRaw():
+            await route.fulfill(
+                content_type='application/json+protobuf; charset=UTF-8',
+                body=raw_resp
+            )
+        else:
+            await route.fallback()
 
     async def prepare_page(self, page: Page) -> None:
         await page.route("**/www.google-analytics.com/*", lambda route: route.abort())

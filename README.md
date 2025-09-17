@@ -165,7 +165,7 @@ sequenceDiagram
 - [x] AI Studio代理配置
 - [x] 预构建Docker镜像
 - [x] 详细配置文档
-- [ ] 注入隐藏模型
+- [?] 注入隐藏模型(目前没有可用隐藏模型，无法测试)
 - [ ] 添加OpenAI API支持
 - [ ] 将 context <200k 的请求 offload 到 GenAI API
 

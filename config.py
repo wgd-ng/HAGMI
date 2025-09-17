@@ -19,6 +19,7 @@ class ProxyConfig(BaseModel):
 
 class ModelInjection(BaseModel):
     model: str
+    name: str
     template: str
     override: dict[str, str | int] = Field(default_factory=dict)
 
