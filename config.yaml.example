@@ -18,7 +18,7 @@ UvicornPort: 8000
 # ！！！用于鉴权的API Key 一定要更改！！！
 AuthKey: 'YOUR_API_KEY'
 
-# 无头浏览器配置, 可选 true, false 或者 虚拟显示器 virtual
+# 无头浏览器配置, 可选 true, false 或者 虚拟显示器 'virtual'
 Headless: 'virtual'
 
 # 代理配置, 可选socks5或http代理，使用socks5代理是不支持用户名密码鉴权
@@ -28,6 +28,9 @@ Headless: 'virtual'
 #   server: 'http://127.0.0.1:7071'
 #   username: 'username'
 #   password: 'password'
+
+# 工作线程数，最大不超过配置帐号总数量
+# WorkerCount: 1
 
 # 账号配置，可配置多个用户，启动浏览器时会尝试自动登录，但不支持ReCaptcha或2FA。
 # 可以不配置账户，仅通过上传登录状态使用
