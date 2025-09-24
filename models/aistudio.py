@@ -273,6 +273,8 @@ class GeneratePart():
     functionCall: FunctionCall | None = None
     unknow11: None = None
     isThought: int | None = None
+    unknow13: None = None
+    thoughtSignature: str | None = None
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -319,7 +321,7 @@ class GroundingMetadata():
 
 @dataclasses.dataclass(kw_only=True)
 class Candidate():
-    contents: GenerateContent | None
+    contents: GenerateContent | None = None
     isOutput: int | None = None # 1 response 2 thinking
     finishReason: str | None = None
     unknow3: None = None

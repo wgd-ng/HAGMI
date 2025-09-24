@@ -379,7 +379,7 @@ class Part(pydantic.BaseModel):
     codeExecutionResult: Optional[CodeExecutionResult] = None
     videoMetadata: Optional[VideoMetadata] = None
     thought: Optional[bool] = None
-    thoughtSignature: Optional[bytes] = None
+    thoughtSignature: Optional[str] = None
 
 
 class Content(pydantic.BaseModel):

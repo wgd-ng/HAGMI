@@ -213,6 +213,7 @@ def GenAIRequestToAiStudioPromptHistory(model: str, request: GenerateContentRequ
                             functionCall=GenAIFunctionCallToAIStudio(part.functionCall),
                             response=None
                         ),
+                        thoughtSignature=[part.thoughtSignature.decode()] if part.thoughtSignature else None,
                     ))
                 if part.text:
                     turns.append(aistudio.PromptContent(role=content.role, text=part.text))
@@ -332,8 +333,15 @@ def AiStudioStreamEventToGenAIResponse(events: StreamEvent | List[StreamEvent]) 
 
         if event.candidates:
             for candidate in event.candidates:
+                if candidate.finishReason:
+                    finish_reason = candidate.finishReason
                 if candidate.contents and candidate.contents.parts:
                     for part in candidate.contents.parts:
+                        if part.thoughtSignature:
+                            parts.append(genai.Part(
+                                thoughtSignature=part.thoughtSignature.encode(),
+                                thought=bool(part.isThought),
+                            ))
                         if part.text:
                             parts.append(genai.Part(
                                 text=part.text,
