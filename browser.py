@@ -1,7 +1,8 @@
 import hashlib
 import logging
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, TypedDict
 import time
+import re
 import os
 import typing
 import json
@@ -59,6 +60,12 @@ class InterceptTask:
     profiler: Profiler
 
 
+
+class AccountInfo(TypedDict):
+    email: str | None
+    apiKey: str | None
+
+
 class BrowserPool:
     queue: asyncio.Queue[InterceptTask]
     _workers: dict[asyncio.Task, 'BrowserWorker']
@@ -86,7 +93,8 @@ class BrowserPool:
             logger.info('worker %s exit normally', task.get_name())
         if worker := self._workers.pop(task, None):
             asyncio.create_task(worker.stop())
-            worker.ready.set()
+            if not worker.ready.done():
+                worker.ready.set_result(None)
 
     async def start(self):
 
@@ -108,9 +116,17 @@ class BrowserPool:
 
         logger.info('waiting for workers to be ready')
         await asyncio.gather(*[
-            worker.ready.wait()
+            worker.ready
             for task, worker in self._workers.items() if not task.done()
         ], return_exceptions=True)
+        for task, worker in self._workers.items():
+            account_info = await worker.ready
+            if not account_info:
+                continue
+            if not worker._credential.email and account_info['email']:
+                worker._credential.email = account_info['email']
+            if not worker._credential.apikey and account_info['apiKey']:
+                worker._credential.apikey = account_info['apiKey']
 
         if len(self._workers) <= 0:
             raise BaseException('No Worker Available')
@@ -131,7 +147,7 @@ class BrowserWorker:
     _endpoint: str | None
     _pool: BrowserPool
     status: str
-    ready: asyncio.Event
+    ready: asyncio.Future
 
     def __init__(self, credential: Credential, pool: BrowserPool, *, endpoint: str|None = None, loop=None):
         self._loop = loop
@@ -140,7 +156,7 @@ class BrowserWorker:
         self._endpoint = endpoint
         self._pages = []
         self._pool = pool
-        self.ready = asyncio.Event()
+        self.ready = asyncio.Future()
 
     async def browser(self) -> BrowserContext:
         if not self._browser:
@@ -198,18 +214,18 @@ class BrowserWorker:
             await page.goto(f'{config.AIStudioUrl}/prompts/new_chat')
             await page.evaluate("""()=>{mw:localStorage.setItem("aiStudioUserPreference", '{"isAdvancedOpen":false,"isSafetySettingsOpen":false,"areToolsOpen":true,"autosaveEnabled":false,"hasShownDrivePermissionDialog":true,"hasShownAutosaveOnDialog":true,"enterKeyBehavior":0,"theme":"system","bidiOutputFormat":3,"isSystemInstructionsOpen":true,"warmWelcomeDisplayed":true,"getCodeLanguage":"Python","getCodeHistoryToggle":true,"fileCopyrightAcknowledged":false,"enableSearchAsATool":true,"selectedSystemInstructionsConfigName":null,"thinkingBudgetsByModel":{},"rawModeEnabled":false,"monacoEditorTextWrap":false,"monacoEditorFontLigatures":true,"monacoEditorMinimap":false,"monacoEditorFolding":false,"monacoEditorLineNumbers":true,"monacoEditorStickyScrollEnabled":true,"monacoEditorGuidesIndentation":true}')}""")
 
-    async def validate_state(self) -> bool:
+    async def validate_state(self) -> AccountInfo | None:
         async with self.page() as page:
             logger.info('start validate state')
             await page.goto(f'{config.AIStudioUrl}/prompts/new_chat')
             if page.url.startswith(config.AIStudioUrl):
-                return True
+                return await self.fetch_account_info(page)
             elif not page.url.startswith('https://accounts.google.com/'):
                 raise BaseException(f"Page at unexcpected URL: {page.url}")
 
             # 没登录
             if not self._credential.email or not self._credential.password:
-                return False
+                return None
 
             logger.info('login using credential %s', self._credential.email)
             await page.locator('input#identifierId').type(self._credential.email)
@@ -226,7 +242,36 @@ class BrowserWorker:
                 await page.locator('mat-dialog-content .welcome-option button[aria-label="Try Gemini"]').click()
             await (await self.browser()).storage_state(path=f'{config.StatesDir}/{self._credential.stateFile}')
             logger.info('store stete for credential %s', self._credential.email)
-            return True
+            return await self.fetch_account_info(page)
+
+    async def fetch_account_info(self, page: Page) -> AccountInfo:
+        rtn: AccountInfo = {
+            'email': None,
+            'apiKey': None
+        }
+        async def handle_apikeys(route: Route):
+            await route.continue_()
+            if not route.request.url.endswith('ListCloudApiKeys'):
+                return
+
+            if not (resp := await route.request.response()):
+                return
+
+            data = json.loads(await resp.body())
+
+            rtn['apiKey'] = data[0][0][2]
+
+        await page.route("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*", handle_apikeys)
+        await page.goto('https://aistudio.google.com/apikey')
+        email_regex = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        global_data = await page.evaluate('mw:window.WIZ_global_data')
+        for _, value in global_data.items():
+            if not isinstance(value, str):
+                continue
+            if email_regex.match(value):
+                rtn['email'] = value
+        await page.unroute("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*", handle_apikeys)
+        return rtn
 
     @contextlib.asynccontextmanager
     async def page(self):
@@ -247,12 +292,12 @@ class BrowserWorker:
             self._browser = None
 
     async def run(self):
-        if not await self.validate_state():
+        if not (accountInfo := await self.validate_state()):
             logger.info('State is not valid for credential %s', self._credential.email)
             await self.stop()
             return
         logger.info('Worker %s is ready', self._credential.email)
-        self.ready.set()
+        self.ready.set_result(accountInfo)
         while True:
             try:
                 task = await self._pool.queue.get()
