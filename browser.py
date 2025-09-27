@@ -352,27 +352,35 @@ class BrowserWorker:
                 case _:
                     await route.fallback()
 
-        async with asyncio.timeout(timeout):
-            async with self.page() as page:
-                profiler.span('Page: Created')
-                await page.route("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*", handle_route)
-                await page.goto(f'{config.AIStudioUrl}/prompts/{prompt_id}')
-                profiler.span('Page: Loaded')
-                last_turn = page.locator('ms-chat-turn').last
-                await expect(last_turn.locator('ms-text-chunk')).to_have_text('(placeholder)', timeout=20000)
-                profiler.span('Page: Placeholder Visible')
-                if await page.locator('.glue-cookie-notification-bar__reject').is_visible():
-                    await page.locator('.glue-cookie-notification-bar__reject').click()
-                if await page.locator('button[aria-label="Close run settings panel"]').is_visible():
-                    await page.locator('button[aria-label="Close run settings panel"]').click(force=True)
-                await page.locator('ms-text-chunk textarea').click()
-                await last_turn.click(force=True)
-                profiler.span('Page: Last Turn Hover')
-                rerun = last_turn.locator('[name="rerun-button"]')
-                await expect(rerun).to_be_visible()
-                profiler.span('Page: Rerun Visible')
-                await rerun.click(force=True)
-                profiler.span('Page: Rerun Clicked')
-                await page.locator('ms-text-chunk textarea').click()
-                await future
-                await page.unroute("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*")
+        try:
+            async with asyncio.timeout(timeout):
+                async with self.page() as page:
+                    profiler.span('Page: Created')
+                    await page.route("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*", handle_route)
+                    await page.goto(f'{config.AIStudioUrl}/prompts/{prompt_id}')
+                    profiler.span('Page: Loaded')
+                    last_turn = page.locator('ms-chat-turn').last
+                    await expect(last_turn.locator('ms-text-chunk')).to_have_text('(placeholder)', timeout=20000)
+                    profiler.span('Page: Placeholder Visible')
+                    if await page.locator('.glue-cookie-notification-bar__reject').is_visible():
+                        await page.locator('.glue-cookie-notification-bar__reject').click()
+                    if await page.locator('button[aria-label="Close run settings panel"]').is_visible():
+                        await page.locator('button[aria-label="Close run settings panel"]').click(force=True)
+                    await page.locator('ms-text-chunk textarea').click()
+                    await last_turn.click(force=True)
+                    profiler.span('Page: Last Turn Hover')
+                    rerun = last_turn.locator('[name="rerun-button"]')
+                    await expect(rerun).to_be_visible()
+                    profiler.span('Page: Rerun Visible')
+                    await rerun.click(force=True)
+                    profiler.span('Page: Rerun Clicked')
+                    await page.locator('ms-text-chunk textarea').click()
+                    await future
+                    await page.unroute("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*")
+        except:
+            with open(f'{config.LogDir}/{prompt_id}.png', 'wb') as fp:
+                fp.write(await page.screenshot())
+
+            with open(f'{config.LogDir}/{prompt_id}.html', 'w') as fp:
+                fp.write(await page.content())
+            raise
