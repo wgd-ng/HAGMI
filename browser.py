@@ -372,8 +372,9 @@ class BrowserWorker:
                     rerun = last_turn.locator('[name="rerun-button"]')
                     await expect(rerun).to_be_visible()
                     profiler.span('Page: Rerun Visible')
-                    await rerun.click(force=True)
-                    profiler.span('Page: Rerun Clicked')
+                    while await last_turn.locator('[name="rerun-button"]').is_visible():
+                        await last_turn.locator('[name="rerun-button"]').click()
+                        profiler.span('Page: Rerun Clicked')
                     await page.locator('ms-text-chunk textarea').click()
                     await future
                     await page.unroute("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*")
