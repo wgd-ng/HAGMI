@@ -142,6 +142,8 @@ async def stream_generate_content(model: str, request_body: genai.GenerateConten
                 data = response_chunk.model_dump_json(exclude_none=True)
                 logging.debug('yield event %r', data)
                 yield f"data: {data}\n\n"
+                if await request.is_disconnected():
+                    break
 
         return StreamingResponse(response_generator(), media_type="text/event-stream")
 

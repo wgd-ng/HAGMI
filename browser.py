@@ -92,9 +92,10 @@ class BrowserPool:
         else:
             logger.info('worker %s exit normally', task.get_name())
         if worker := self._workers.pop(task, None):
-            asyncio.create_task(worker.stop())
-            if not worker.ready.done():
+            if not worker.ready.done():  # not ready 那就是验证登录状态的时候出错了
                 worker.ready.set_result(None)
+            elif exc:
+                logging.fatal('worker %s unexpected exception', task.get_name(), exc_info=exc)
 
     async def start(self):
 
@@ -128,7 +129,9 @@ class BrowserPool:
             if not worker._credential.apikey and account_info['apiKey']:
                 worker._credential.apikey = account_info['apiKey']
 
-        if len(self._workers) <= 0:
+        if config.WorkerCount == 0:
+            pass
+        elif len(self._workers) <= 0:
             raise BaseException('No Worker Available')
         logger.info('%d Workers Up and Running', len(self._workers))
         return self
@@ -303,7 +306,7 @@ class BrowserWorker:
                 task = await self._pool.queue.get()
                 task.profiler.span('worker: task fetched')
                 await self.InterceptRequest(task.prompt_history, task.future, task.profiler)
-            except Exception as exc:
+            except BaseException as exc:
                 task.profiler.span('worker: failed with exception', traceback.format_exception(exc))
                 task.future.set_exception(exc)
 
@@ -362,19 +365,22 @@ class BrowserWorker:
                     last_turn = page.locator('ms-chat-turn').last
                     await expect(last_turn.locator('ms-text-chunk')).to_have_text('(placeholder)', timeout=20000)
                     profiler.span('Page: Placeholder Visible')
+                    # 到处点点
                     if await page.locator('.glue-cookie-notification-bar__reject').is_visible():
                         await page.locator('.glue-cookie-notification-bar__reject').click()
                     if await page.locator('button[aria-label="Close run settings panel"]').is_visible():
                         await page.locator('button[aria-label="Close run settings panel"]').click(force=True)
                     await page.locator('ms-text-chunk textarea').click()
-                    await last_turn.click(force=True)
-                    profiler.span('Page: Last Turn Hover')
-                    rerun = last_turn.locator('[name="rerun-button"]')
-                    await expect(rerun).to_be_visible()
-                    profiler.span('Page: Rerun Visible')
-                    while await last_turn.locator('[name="rerun-button"]').is_visible():
+
+                    while await last_turn.locator('ms-text-chunk').text_content() == '(placeholder)':
+                        await last_turn.click(force=True)
+                        profiler.span('Page: Last Turn Hover')
+                        rerun = last_turn.locator('[name="rerun-button"]')
+                        await expect(rerun).to_be_visible()
+                        profiler.span('Page: Rerun Visible')
                         await last_turn.locator('[name="rerun-button"]').click()
                         profiler.span('Page: Rerun Clicked')
+                        await asyncio.sleep(1)
                     await page.locator('ms-text-chunk textarea').click()
                     await future
                     await page.unroute("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*")
