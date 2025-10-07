@@ -71,7 +71,7 @@ class Modality(enum.IntEnum):
 
 
 @dataclasses.dataclass(kw_only=True)
-class GenerateContentConfig():
+class PromptHistoryConfig():
     unknow0: int = 1
     stopSequences: list[str] | None = None
     model: str
@@ -204,7 +204,7 @@ class PromptInfo():
     uri: str
     unknow1: int | None = None
     unknow2: int | None = None
-    generationConfig: GenerateContentConfig
+    generationConfig: PromptHistoryConfig
     promptMetadata: PromptMetadata
     unknow5: None = None
     unknow6: None = None
@@ -280,7 +280,7 @@ class GeneratePart():
 @dataclasses.dataclass(kw_only=True)
 class GenerateContent():
     parts: list[GeneratePart] | None = None
-    role: Literal['model'] = 'model'
+    role: Literal['model', 'user']
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -361,6 +361,59 @@ class ResponseError(BaseException):
 class GenerateContentResponse():
     events: list[StreamEvent]
     error: ResponseError | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class ThinkingConfig():
+    includeThoughts: int = 1
+    thinkingBudget: int = -1
+
+
+@dataclasses.dataclass(kw_only=True)
+class GenerateContentConfig():
+    unknow0: None = None
+    unknow1: None = None
+    unknow2: None = None
+    maxOutputTokens: int = 65536
+    temperature: float = 0.95
+    topP: float = 1.0
+    topK: int = 64
+    responseMimeType: str | None = None
+    responseSchema: None = None
+    unknow9: None = None
+    unknow10: None = None
+    unknow11: None = None
+    unknow12: None = None
+    unknow13: int = 1
+    unknow14: None = None
+    unknow15: None = None
+    thinkingConfig: ThinkingConfig
+    mediaResolution: int | None = None # ?
+
+
+@dataclasses.dataclass(kw_only=True)
+class FunctionDeclarationWrap():
+    functionDeclarations: list[FunctionDeclaration]
+
+@dataclasses.dataclass(kw_only=True)
+class Tool():
+    functionDeclarations: FunctionDeclarationWrap
+
+
+@dataclasses.dataclass(kw_only=True)
+class GenerateContentRequest():
+    model: str
+    contents: list[GenerateContent]
+    safetySettings: list[SafetySetting] | None = None
+    generationConfig: GenerateContentConfig | None = None
+    potoken: str
+    systemInstruction: GenerateContent | None = None
+    tools: list[Tool] | None = None
+    unknow7: None = None
+    unknow8: None = None
+    unknow9: None = None
+    unknow10: int = 1
+    unknow11: str | None = None
 
 
 @dataclasses.dataclass(kw_only=True)

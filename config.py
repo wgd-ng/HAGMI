@@ -43,6 +43,9 @@ config = Config.model_validate(yaml.safe_load(open('config.yaml')))
 if config.Debug:
     logging.basicConfig(level=logging.DEBUG)
 
+if config.Headless == 'virtual':
+    # TODO: 手动集成xvfb
+    config.Headless = False
 
 # load states w/o credential
 states = [fname for fname in os.listdir(config.StatesDir) if fname.endswith('.json')]

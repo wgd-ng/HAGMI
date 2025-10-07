@@ -14,9 +14,10 @@ import aiohttp
 import contextlib
 import pathlib
 from models.aistudio import PromptHistory, flatten, inflate, StreamParser, Model, ListModelsResponse
+from models.genai import GenerateContentRequest
+from models import _adapter
 from datetime import datetime, timezone
-from camoufox.async_api import AsyncCamoufox, AsyncNewBrowser
-from playwright.async_api import Route, expect, async_playwright, BrowserContext, Browser, Page
+from patchright.async_api import Route, expect, async_playwright, BrowserContext, Browser, Page, TimeoutError
 import dataclasses
 from config import config, AIOHTTP_PROXY, AIOHTTP_PROXY_AUTH, CAMOUFOX_PROXY
 from utils import Profiler, CredentialManager, Credential
@@ -55,10 +56,11 @@ fixed_responsed = [
 
 @dataclasses.dataclass
 class InterceptTask:
-    prompt_history: PromptHistory
+    request_id: str
+    model: str
+    request: GenerateContentRequest
     future: asyncio.Future
     profiler: Profiler
-
 
 
 class AccountInfo(TypedDict):
@@ -101,7 +103,7 @@ class BrowserPool:
 
         for cred in self._credMgr.credentials[:self._worker_count]:
 
-            worker = BrowserWorker(
+            worker = DirectBrowserWorker(
                 credential=cred,
                 pool=self,
                 endpoint=self._endpoint,
@@ -151,6 +153,7 @@ class BrowserWorker:
     _pool: BrowserPool
     status: str
     ready: asyncio.Future
+    cookies: dict[str, str]
 
     def __init__(self, credential: Credential, pool: BrowserPool, *, endpoint: str|None = None, loop=None):
         self._loop = loop
@@ -160,20 +163,31 @@ class BrowserWorker:
         self._pages = []
         self._pool = pool
         self.ready = asyncio.Future()
+        self.cookies = {}
+    
+    def _process_cookies(self, cookies: list[dict[str, str]]) -> dict[str, str]:
+        return {
+            item['name']: item['value']
+            for item in cookies
+        }
 
     async def browser(self) -> BrowserContext:
         if not self._browser:
             if not self._endpoint:
-                _browser = typing.cast(Browser, await AsyncCamoufox(
-                    headless=config.Headless,
-                    main_world_eval=True,
-                    enable_cache=True,
-                    locale="US",
-                    proxy=CAMOUFOX_PROXY,
-                    geoip=True if CAMOUFOX_PROXY else False,
-                ).__aenter__())
+                # _browser = typing.cast(Browser, await AsyncCamoufox(
+                #     headless=config.Headless,
+                #     main_world_eval=True,
+                #     enable_cache=True,
+                #     locale="US",
+                #     proxy=CAMOUFOX_PROXY,
+                #     geoip=True if CAMOUFOX_PROXY else False,
+                # ).__aenter__())
+                playwright = await async_playwright().__aenter__()
+                _browser = await playwright.chromium.launch(
+                    headless=config.Headless is True,
+                )
             else:
-                _browser = await (await async_playwright().__aenter__()).firefox.connect(self._endpoint)
+                _browser = await (await async_playwright().__aenter__()).chromium.connect(self._endpoint)
             if _browser.contexts:
                 context = _browser.contexts[0]
             else:
@@ -181,6 +195,8 @@ class BrowserWorker:
 
                 if self._credential.stateFile and os.path.exists(f'{config.StatesDir}/{self._credential.stateFile}'):
                     storage_state = f'{config.StatesDir}/{self._credential.stateFile}'
+                    with open(storage_state) as fp:
+                        self.cookies = self._process_cookies(json.load(fp)['cookies'])
                 context = await _browser.new_context(
                     storage_state=storage_state,
                     ignore_https_errors=True,
@@ -215,7 +231,7 @@ class BrowserWorker:
         await page.route("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/ListModels", self.handle_ListModels)
         if not page.url.startswith(config.AIStudioUrl):
             await page.goto(f'{config.AIStudioUrl}/prompts/new_chat')
-            await page.evaluate("""()=>{mw:localStorage.setItem("aiStudioUserPreference", '{"isAdvancedOpen":false,"isSafetySettingsOpen":false,"areToolsOpen":true,"autosaveEnabled":false,"hasShownDrivePermissionDialog":true,"hasShownAutosaveOnDialog":true,"enterKeyBehavior":0,"theme":"system","bidiOutputFormat":3,"isSystemInstructionsOpen":true,"warmWelcomeDisplayed":true,"getCodeLanguage":"Python","getCodeHistoryToggle":true,"fileCopyrightAcknowledged":false,"enableSearchAsATool":true,"selectedSystemInstructionsConfigName":null,"thinkingBudgetsByModel":{},"rawModeEnabled":false,"monacoEditorTextWrap":false,"monacoEditorFontLigatures":true,"monacoEditorMinimap":false,"monacoEditorFolding":false,"monacoEditorLineNumbers":true,"monacoEditorStickyScrollEnabled":true,"monacoEditorGuidesIndentation":true}')}""")
+            await page.evaluate("""()=>{localStorage.setItem("aiStudioUserPreference", '{"isAdvancedOpen":false,"isSafetySettingsOpen":false,"areToolsOpen":true,"autosaveEnabled":false,"hasShownDrivePermissionDialog":true,"hasShownAutosaveOnDialog":true,"enterKeyBehavior":0,"theme":"system","bidiOutputFormat":3,"isSystemInstructionsOpen":true,"warmWelcomeDisplayed":true,"getCodeLanguage":"Python","getCodeHistoryToggle":true,"fileCopyrightAcknowledged":false,"enableSearchAsATool":true,"selectedSystemInstructionsConfigName":null,"thinkingBudgetsByModel":{},"rawModeEnabled":false,"monacoEditorTextWrap":false,"monacoEditorFontLigatures":true,"monacoEditorMinimap":false,"monacoEditorFolding":false,"monacoEditorLineNumbers":true,"monacoEditorStickyScrollEnabled":true,"monacoEditorGuidesIndentation":true}')}""")
 
     async def validate_state(self) -> AccountInfo | None:
         async with self.page() as page:
@@ -244,10 +260,12 @@ class BrowserWorker:
             if await page.locator('mat-dialog-content .welcome-option button[aria-label="Try Gemini"]').count() > 0:
                 await page.locator('mat-dialog-content .welcome-option button[aria-label="Try Gemini"]').click()
             await (await self.browser()).storage_state(path=f'{config.StatesDir}/{self._credential.stateFile}')
+            with open(f'{config.StatesDir}/{self._credential.stateFile}') as fp:
+                self.cookies = self._process_cookies(json.load(fp)['cookies'])
             logger.info('store stete for credential %s', self._credential.email)
             return await self.fetch_account_info(page)
 
-    async def fetch_account_info(self, page: Page) -> AccountInfo:
+    async def fetch_account_info(self, page: Page) -> AccountInfo | None:
         rtn: AccountInfo = {
             'email': None,
             'apiKey': None
@@ -265,9 +283,12 @@ class BrowserWorker:
             rtn['apiKey'] = data[0][0][2]
 
         await page.route("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/*", handle_apikeys)
-        await page.goto('https://aistudio.google.com/apikey')
+        await page.goto('https://aistudio.google.com/api-keys')
         email_regex = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-        global_data = await page.evaluate('mw:window.WIZ_global_data')
+        await page.wait_for_load_state('load')
+        global_data = await page.evaluate('window.WIZ_global_data', isolated_context=False)
+        if not global_data:
+            return None
         for _, value in global_data.items():
             if not isinstance(value, str):
                 continue
@@ -302,16 +323,18 @@ class BrowserWorker:
         logger.info('Worker %s is ready', self._credential.email)
         self.ready.set_result(accountInfo)
         while True:
+            task = await self._pool.queue.get()
             try:
-                task = await self._pool.queue.get()
                 task.profiler.span('worker: task fetched')
-                await self.InterceptRequest(task.prompt_history, task.future, task.profiler)
+                await self.InterceptRequest(task.request_id, task.model, task.request, task.future, task.profiler)
             except BaseException as exc:
                 task.profiler.span('worker: failed with exception', traceback.format_exception(exc))
                 task.future.set_exception(exc)
 
-    async def InterceptRequest(self, prompt_history: PromptHistory, future: asyncio.Future, profiler: Profiler, timeout: int=60):
-        prompt_id = prompt_history.prompt.uri.split('/')[-1]
+    async def InterceptRequest(self, request_id:str, model: str, request: GenerateContentRequest, future: asyncio.Future, profiler: Profiler, timeout: int=60):
+        prompt_history = _adapter.GenAIRequestToAiStudioPromptHistory(model, request, prompt_id=request_id)
+        profiler.span('adapter: GenAIRequestToAiStudioPromptHistory')
+        prompt_id = request_id
 
         async def handle_route(route: Route) -> None:
             match route.request.url.split('/')[-1]:
@@ -391,3 +414,80 @@ class BrowserWorker:
             with open(f'{config.LogDir}/{prompt_id}.html', 'w') as fp:
                 fp.write(await page.content())
             raise
+
+
+POTOKEN_SCRIPT = '''(content) => {
+    return new Promise(
+        (resolve) => {
+            window.__hagmi_snapshot(
+                (resp) => {resolve(resp)},
+                [{"content": content},undefined,undefined,undefined]
+            )})}
+'''
+
+
+class DirectBrowserWorker(BrowserWorker):
+
+    async def prepare_page(self, page: Page) -> None:
+        await page.route("**/www.google-analytics.com/*", lambda route: route.abort())
+        await page.route("**/play.google.com/*", lambda route: route.abort())
+        await page.route("**/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/ListModels", self.handle_ListModels)
+
+        regex = re.compile(r'\w\.resolve\(\{\w+:(\w+),\w+:\w+,\w+:\w+,\w+:\w+\}\)')
+
+        async def modify_script(route: Route):
+            if not route.request.url.endswith('m=_b'):
+                return await route.fallback()
+            resp = await route.fetch()
+            script = await resp.text()
+            if not (m := regex.search(script)):
+                return await route.fallback()
+            begin, _ = m.span()
+            func_name = m.group(1)
+            script = script[:begin] + (f'console.log("funccc", {func_name});window.__hagmi_snapshot={func_name};') + script[begin:]
+
+            await route.fulfill(
+                headers=resp.headers,
+                body=script,
+            )
+
+        await page.route("**/boq-makersuite/_/js/**", modify_script)
+
+        if not page.url.startswith(config.AIStudioUrl):
+            await page.goto(f'{config.AIStudioUrl}/prompts/new_chat')
+            await page.evaluate("""()=>{localStorage.setItem("aiStudioUserPreference", '{"isAdvancedOpen":false,"isSafetySettingsOpen":false,"areToolsOpen":true,"autosaveEnabled":false,"hasShownDrivePermissionDialog":true,"hasShownAutosaveOnDialog":true,"enterKeyBehavior":0,"theme":"system","bidiOutputFormat":3,"isSystemInstructionsOpen":true,"warmWelcomeDisplayed":true,"getCodeLanguage":"Python","getCodeHistoryToggle":true,"fileCopyrightAcknowledged":false,"enableSearchAsATool":true,"selectedSystemInstructionsConfigName":null,"thinkingBudgetsByModel":{},"rawModeEnabled":false,"monacoEditorTextWrap":false,"monacoEditorFontLigatures":true,"monacoEditorMinimap":false,"monacoEditorFolding":false,"monacoEditorLineNumbers":true,"monacoEditorStickyScrollEnabled":true,"monacoEditorGuidesIndentation":true}')}""")
+
+    async def InterceptRequest(self, request_id:str, model: str, request: GenerateContentRequest, future: asyncio.Future, profiler: Profiler, timeout: int=60):
+        req = _adapter.GenAIRequestToAiStudioRequest(f'models/{model}', request)
+        text = []
+        for content in request.contents:
+            for part in content.parts:
+                if part.text:
+                    text.append(part.text)
+        plaintext = ' '.join(text).encode()
+        checksum = hashlib.sha256(plaintext).hexdigest()
+        headers = {
+            'accept': '*/*',
+            'accept-language': 'US',
+            'authorization': sapisidhash(self.cookies),
+            'content-type': 'application/json+protobuf',
+            'origin': 'https://aistudio.google.com',
+            # 'priority': 'u=1, i',
+            'referer': 'https://aistudio.google.com/',
+            'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+            'x-goog-api-key': 'AIzaSyDdP816MREB3SkjZO04QXbjsigfcI0GWOs',
+            'x-goog-authuser': '0',
+            'x-goog-ext-519733851-bin': 'CAASAUQwATgEQAA=',
+            'x-user-agent': 'grpc-web-javascript/0.1',
+            'cookie': '; '.join([f'{key}={value}' for key, value in self.cookies.items()]),
+        }
+        async with self.page() as page:
+            # 选择随机元素移动鼠标
+            spans = await page.locator("span:visible").all()
+            random.shuffle(spans)
+            for span in spans[:3]:
+                await span.hover()
+            req.potoken = await page.evaluate(POTOKEN_SCRIPT, checksum, isolated_context=False)
+        body = flatten(req)
+        future.set_result((headers, json.dumps(body, separators=(',', ':'))))
+ 

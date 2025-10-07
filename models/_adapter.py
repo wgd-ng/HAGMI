@@ -257,7 +257,7 @@ def GenAIRequestToAiStudioPromptHistory(model: str, request: GenerateContentRequ
                 ))
 
     if request.generationConfig:
-        generation_config = aistudio.GenerateContentConfig(
+        generation_config = aistudio.PromptHistoryConfig(
             model=f'models/{model}',
             safetySettings=safety_settings,
             topP=request.generationConfig.topP if request.generationConfig.topP is not None else 0.95,
@@ -275,7 +275,7 @@ def GenAIRequestToAiStudioPromptHistory(model: str, request: GenerateContentRequ
                 GENAI_MODALITY_TO_AISTUDIO_MAP[item] for item in request.generationConfig.responseModalities
             ]
     else:
-        generation_config = aistudio.GenerateContentConfig(
+        generation_config = aistudio.PromptHistoryConfig(
             model=f'models/{model}',
             safetySettings=safety_settings
         )
@@ -316,6 +316,47 @@ def GenAIRequestToAiStudioPromptHistory(model: str, request: GenerateContentRequ
     )
 
     return aistudio.PromptHistory(prompt=prompt)
+
+
+def GenAIRequestToAiStudioRequest(model: str, req: genai.GenerateContentRequest) -> aistudio.GenerateContentRequest:
+    contents: list[aistudio.GenerateContent] = []
+    system_instruction = []
+    for content in req.contents:
+        # TODO: Tools
+        if content.role == 'system':
+            for part in content.parts:
+                if part.text:
+                    system_instruction.append(part.text)
+            continue
+        if content.role == 'function':
+            continue
+        parts = []
+        for part in content.parts:
+            parts.append(aistudio.GeneratePart(
+                text=part.text,
+            ))
+        contents.append(aistudio.GenerateContent(parts=parts, role=content.role))
+
+    generationConfig = None
+    if req.generationConfig:
+        generationConfig = aistudio.GenerateContentConfig(
+            topP=req.generationConfig.topP if req.generationConfig.topP is not None else 0.95,
+            topK=int(req.generationConfig.topK) if req.generationConfig.topK is not None else 64,
+            maxOutputTokens=req.generationConfig.maxOutputTokens if req.generationConfig.maxOutputTokens is not None else 65536,
+            thinkingConfig=aistudio.ThinkingConfig(
+                includeThoughts=1,
+                thinkingBudget=-1
+            )
+        )
+
+    rtn = aistudio.GenerateContentRequest(
+        model=model,
+        contents=contents,
+        # safetySettings=[],
+        generationConfig=generationConfig,
+        potoken='',
+    )
+    return rtn
 
 
 def AiStudioStreamEventToGenAIResponse(events: StreamEvent | List[StreamEvent]) -> GenerateContentResponse:

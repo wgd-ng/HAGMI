@@ -102,10 +102,8 @@ async def generate_content(model: str, request_body: genai.GenerateContentReques
     with Profiler(request_id) as profiler:
         profiler.span('fastapi: receive request', {'model': model, 'request': request_body.model_dump()})
 
-        prompt_history = adapter.GenAIRequestToAiStudioPromptHistory(model, request_body, prompt_id=request_id)
-        profiler.span('adapter: GenAIRequestToAiStudioPromptHistory')
         future = asyncio.Future()
-        await browser_pool.put_task(InterceptTask(prompt_history, future, profiler))
+        await browser_pool.put_task(InterceptTask(request_id, model, request_body, future, profiler))
         profiler.span('fastapi: task scheduled')
         headers, body = await future
 
@@ -127,10 +125,8 @@ async def stream_generate_content(model: str, request_body: genai.GenerateConten
     with Profiler(request_id) as profiler:
         profiler.span('fastapi: receive request', {'model': model, 'request': request_body.model_dump()})
 
-        prompt_history = adapter.GenAIRequestToAiStudioPromptHistory(model, request_body)
-        profiler.span('adapter: GenAIRequestToAiStudioPromptHistory')
         future = asyncio.Future()
-        await browser_pool.put_task(InterceptTask(prompt_history, future, profiler))
+        await browser_pool.put_task(InterceptTask(request_id, model, request_body, future, profiler))
         profiler.span('fastapi: task scheduled')
         headers, body = await future
 

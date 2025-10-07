@@ -411,7 +411,6 @@ class GenerateContentConfig(pydantic.BaseModel):
     safetySettings: Optional[List[SafetySetting]] = None
     tools: Optional[List[Tool]] = None
     toolConfig: Optional[ToolConfig] = None
-    # httpOptions: Optional[Any] = None
     systemInstruction: Optional[Content] = None
     responseLogprobs: Optional[bool] = None
     logprobs: Optional[int] = None
